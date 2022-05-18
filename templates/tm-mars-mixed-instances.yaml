@@ -1,0 +1,318 @@
+apiVersion: kops/v1alpha2
+kind: Cluster
+metadata:
+  creationTimestamp: null
+  name: {{.nameOfCluster}}-{{.awsRegion}}.{{.dnsZone}}
+spec:
+  additionalPolicies:
+    master: |
+      {{ include "masters.json" . | indent 6}}
+    node: |
+      {{ include "nodes.json" . | indent 6 }}
+  api:
+    loadBalancer:
+      type: Internal
+      crossZoneLoadBalancing: true
+  authentication:
+    aws:
+      image: 681504496077.dkr.ecr.us-east-1.amazonaws.com/aws-iam-authenticator:v0.4.0
+  authorization:
+    rbac: {}
+  channel: stable
+  cloudLabels:
+    {{ range $k,$v := .cloudLabels }}
+    {{- $k }}: {{ $v }}
+    {{ end }}
+  cloudProvider: aws
+  dnsZone: {{.dnsZone}}
+  etcdClusters:
+  - etcdMembers:
+    - instanceGroup: master-{{.awsRegion}}a1
+      name: a1-dev
+    - instanceGroup: master-{{.awsRegion}}a2
+      name: a2-dev
+    - instanceGroup: master-{{.awsRegion}}a3
+      name: a3-dev
+    cpuRequest: 200m
+    memoryRequest: 100Mi
+    enableEtcdTLS: true
+    name: main
+    version: {{.etcdVersion}}
+  - etcdMembers:
+    - instanceGroup: master-{{.awsRegion}}a1
+      name: a1-dev
+    - instanceGroup: master-{{.awsRegion}}a2
+      name: a2-dev
+    - instanceGroup: master-{{.awsRegion}}a3
+      name: a3-dev
+    enableEtcdTLS: true
+    cpuRequest: 100m
+    memoryRequest: 100Mi
+    name: events
+    version: {{.etcdVersion}}
+  iam:
+    allowContainerRegistry: true
+    legacy: false
+  kubeAPIServer:
+    # https://github.com/heptiolabs/gangway
+    # https://github.com/dexidp/dex/blob/master/Documentation/kubernetes.md
+    oidcIssuerURL: https://dex.example.com/dex
+    oidcClientID: gangway
+    oidcUsernameClaim: email
+    oidcGroupsClaim: groups
+
+    maxRequestsInflight: 1000
+    maxMutatingRequestsInflight: 450
+    auditLogPath: /var/log/kube-apiserver-audit.log
+    auditLogMaxAge: 10
+    auditLogMaxBackups: 1
+    auditLogMaxSize: 100
+    auditPolicyFile: /srv/kubernetes/audit.yaml
+    # https://istio.io/blog/2019/trustworthy-jwt-sds/
+    serviceAccountIssuer: kubernetes/serviceaccount
+    serviceAccountSigningKeyFile: /srv/kubernetes/server.key
+    serviceAccountKeyFile:
+      - /srv/kubernetes/server.key
+    apiAudiences:
+      {{- range $aud := .kubeAPIServer.apiAudiences }}
+      - {{ $aud }}
+      {{- end }}
+    featureGates:
+      {{- range $gate,$val := .kubeAPIServer.featureGates }}
+      {{ $gate }}: {{ $val | quote }}
+      {{- end }}
+
+  kubeScheduler:
+    featureGates:
+      {{- range $gate,$val := .kubeScheduler.featureGates }}
+      {{ $gate }}: {{ $val | quote }}
+      {{- end }}
+
+  kubeDNS:
+    provider: CoreDNS
+    nodeLocalDNS:
+      enabled: true
+    externalCoreFile: |
+      {{ include "coredns.cfg" . | indent 6}}
+
+  kubelet:
+    anonymousAuth: false
+    # https://github.com/kubernetes-incubator/metrics-server/issues/144
+    # required for metrics-server deployment
+    authenticationTokenWebhook: true
+  #  --authentication-token-webhook \
+    authorizationMode: AlwaysAllow
+   #--authorization-mode=Webhook \
+  kubernetesApiAccess:
+    {{- range $cidr := .kubernetesApiAccess }}
+    - {{ $cidr }}
+    {{- end }}
+  kubernetesVersion: {{.kubernetesVersion}}
+  fileAssets:
+  - name: bashrc
+    path: /root/.bashrc
+    roles: []
+    content: |
+      {{ include "bashrc" . | indent 6 }}
+  - name: audit
+    path: /srv/kubernetes/audit.yaml
+    roles: []
+    content: |
+      {{ include "audit.yaml" . | indent 6 }}
+
+  masterInternalName: api.internal.{{.nameOfCluster}}-{{.awsRegion}}.{{.dnsZone}}
+  masterPublicName: api.{{.nameOfCluster}}-{{.awsRegion}}.{{.dnsZone}}
+  networkCIDR: {{.network.cidr}}
+  networkID: {{.network.id}}
+  networking:
+    weave:
+      mtu: 8950
+  nonMasqueradeCIDR: 100.64.0.0/10
+  sshAccess:
+    {{- range $cidr := .sshAccess }}
+    - {{ $cidr }}
+    {{- end }}
+  docker:
+    version: {{ .docker.version }}
+    logOpt:
+      {{- range $opt := .docker.logOpt }}
+      - {{ $opt }}
+      {{- end }}
+  subnets:
+  - id: {{.subnets.private.A.id}}
+    egress: {{.subnets.private.A.egress}}
+    name: {{.awsRegion}}a
+    type: Private
+    zone: {{.awsRegion}}a
+  # - id: {{.subnets.private.B.id}}
+  #   egress: {{.subnets.private.A.egress}}
+  #   name: {{.awsRegion}}b
+  #   type: Private
+  #   zone: {{.awsRegion}}b
+  # - id: {{.subnets.private.C.id}}
+  #   egress: {{.subnets.private.A.egress}}
+  #   name: {{.awsRegion}}c
+  #   type: Private
+  #   zone: {{.awsRegion}}c
+  - id: {{.subnets.public.A.id}}
+    name: utility-{{.awsRegion}}a
+    type: Utility
+    zone: {{.awsRegion}}a
+  # - id: {{.subnets.public.B.id}}
+  #   name: utility-{{.awsRegion}}b
+  #   type: Utility
+  #   zone: {{.awsRegion}}b
+  # - id: {{.subnets.public.C.id}}
+  #   name: utility-{{.awsRegion}}c
+  #   type: Utility
+  #   zone: {{.awsRegion}}c
+  topology:
+    dns:
+      type: Public
+    masters: private
+    nodes: private
+
+---
+
+apiVersion: kops/v1alpha2
+kind: InstanceGroup
+metadata:
+  labels:
+    kops.k8s.io/cluster: {{.nameOfCluster}}-{{.awsRegion}}.{{.dnsZone}}
+  name: master-{{.awsRegion}}a1
+spec:
+  additionalSecurityGroups:
+    {{- range $val := .master.additionalSecurityGroups }}
+    - {{ $val }}
+    {{- end }}
+  additionalUserData:
+  - name: local_repo.txt
+    type: text/cloud-config
+    content: |
+      {{ include "packages.yaml" . | indent 6 }}
+  associatePublicIp: false
+  image: {{.amiImage}}
+  machineType: {{.master.machineType}}
+  maxSize: 1
+  minSize: 1
+  nodeLabels:
+    kops.k8s.io/instancegroup: master-{{.awsRegion}}a1
+  role: Master
+  rootVolumeSize: 150
+  subnets:
+    - {{.awsRegion}}a
+
+---
+
+apiVersion: kops/v1alpha2
+kind: InstanceGroup
+metadata:
+  labels:
+    kops.k8s.io/cluster: {{.nameOfCluster}}-{{.awsRegion}}.{{.dnsZone}}
+  name: master-{{.awsRegion}}a2
+spec:
+  additionalSecurityGroups:
+    {{- range $val := .master.additionalSecurityGroups }}
+    - {{ $val }}
+    {{- end }}
+  additionalUserData:
+  - name: local_repo.txt
+    type: text/cloud-config
+    content: |
+      {{ include "packages.yaml" . | indent 6 }}
+  associatePublicIp: false
+  image: {{.amiImage}}
+  machineType: {{.master.machineType}}
+  maxSize: 1
+  minSize: 1
+  nodeLabels:
+    kops.k8s.io/instancegroup: master-{{.awsRegion}}a2
+  role: Master
+  rootVolumeSize: 150
+  subnets:
+    - {{.awsRegion}}a
+
+---
+
+apiVersion: kops/v1alpha2
+kind: InstanceGroup
+metadata:
+  labels:
+    kops.k8s.io/cluster: {{.nameOfCluster}}-{{.awsRegion}}.{{.dnsZone}}
+  name: master-{{.awsRegion}}a3
+spec:
+  additionalSecurityGroups:
+    {{- range $val := .master.additionalSecurityGroups }}
+    - {{ $val }}
+    {{- end }}
+  additionalUserData:
+  - name: local_repo.txt
+    type: text/cloud-config
+    content: |
+      {{ include "packages.yaml" . | indent 6 }}
+  associatePublicIp: false
+  image: {{.amiImage}}
+  machineType: {{.master.machineType}}
+  maxSize: 1
+  minSize: 1
+  nodeLabels:
+    kops.k8s.io/instancegroup: master-{{.awsRegion}}a3
+  role: Master
+  rootVolumeSize: 150
+  subnets:
+    - {{.awsRegion}}a
+
+---
+
+apiVersion: kops/v1alpha2
+kind: InstanceGroup
+metadata:
+  labels:
+    kops.k8s.io/cluster: {{.nameOfCluster}}-{{.awsRegion}}.{{.dnsZone}}
+  name: nodes
+spec:
+  nodeLabels:
+    workload: apps
+    kops.k8s.io/instancegroup: nodes
+    kops.k8s.io/cluster: {{.nameOfCluster}}-{{.awsRegion}}.{{.dnsZone}}
+  cloudLabels:
+    dedicated: app-workload
+    # used by cluster-autoscaler - ASG tags
+    k8s.io/cluster-autoscaler/enabled: "true"
+    k8s.io/cluster-autoscaler/{{.nameOfCluster}}-{{.awsRegion}}.{{.dnsZone}}: owned
+  additionalUserData:
+  - name: local_repo.txt
+    type: text/cloud-config
+    content: |
+      {{ include "packages.yaml" . | indent 6 }}
+  associatePublicIp: false
+  image: {{.amiImage}}
+  maxSize: {{ .nodes.app.maxSize }}
+  minSize: {{ .nodes.app.minSize }}
+  machineType: {{ .nodes.app.machineType }}
+  mixedInstancesPolicy:
+    instances:
+      {{- range .nodes.app.mixedInstancesPolicy.instances }}
+      - {{ . }}
+      {{- end }}
+
+    # https://docs.aws.amazon.com/en_pv/autoscaling/ec2/APIReference/API_InstancesDistribution.html
+    onDemandBase: 0
+    onDemandAboveBase: 5
+    onDemandAllocationStrategy: prioritized
+    spotInstancePools: 3
+    SpotAllocationStrategy: lowest-price
+  role: Node
+  rootVolumeSize: 200
+  subnets:
+    - {{.awsRegion}}a
+
+---
+
+apiVersion: kops/v1alpha2
+kind: SSHCredential
+metadata:
+  labels:
+    kops.k8s.io/cluster: {{.nameOfCluster}}-{{.awsRegion}}.{{.dnsZone}}
+spec:
+  publicKey: "{{.sshCredential.publicKey}}"

@@ -1,0 +1,14 @@
+#cloud-config
+final_message: "The system is up after ${UPTIME}s"
+
+packages:
+  - netcat
+  - iperf3
+  - lsof
+  - dnsutils
+  - iputils-tracepath
+  - nmap
+  - hping3
+  - strace
+  - less
+  - open-iscsi

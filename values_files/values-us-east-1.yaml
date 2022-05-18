@@ -1,0 +1,86 @@
+nameOfCluster: mars
+kubernetesVersion: 1.17.13
+etcdVersion: 3.3.13
+amiImage: kope.io/k8s-1.17-debian-stretch-amd64-hvm-ebs-2020-01-17
+dnsZone: dev.example.com
+awsRegion: us-east-1
+kubeAPIServer:
+  # https://istio.io/blog/2019/trustworthy-jwt-sds/
+  apiAudiences:
+    - api
+    - istio-ca
+
+  # https://kubernetes.io/docs/reference/command-line-tools-reference/feature-gates/
+  featureGates:
+    # required until k8s v17
+    # https://github.com/kubernetes-sigs/aws-ebs-csi-driver#prerequisites
+    # VolumeSnapshotDataSource: "true"
+    EvenPodsSpread: "true"
+
+kubeScheduler:
+  featureGates:
+    EvenPodsSpread: "true"
+
+cloudLabels:
+  ManagedBy: kops
+  Owner: SRE
+  Environment: DEV
+kubernetesApiAccess:
+  - 10.1.96.0/19  # AWS VPN, VPC
+sshAccess:
+  - 10.1.96.0/19  # AWS VPN, VPC
+network:
+  cidr: 10.20.86.0/19
+  id: <aws vpc-id>
+docker:
+  version: 19.03.4
+  logOpt:
+    - "max-size=5m"
+    - "max-file=3"
+subnets:
+  private:
+    A:
+      id: subnet-07xxxxxxxxxxxxxx
+      egress: nat-0axxxxxxxxxxxxx
+    B:
+      id: subnet-00xxxxxxxxxxxxxx
+    C:
+      id: subnet-02xxxxxxxxxxxxxx
+  public:
+    A:
+      id: subnet-0cxxxxxxxxxxxxxx
+    B:
+      id: subnet-01xxxxxxxxxxxxxx
+    C:
+      id: subnet-09xxxxxxxxxxxxxx
+
+sshCredential:
+  publicKey: "ssh-rsa AAA.................... BnMn admin@dev.example.com"
+
+master:
+  machineType: m5.xlarge
+  additionalSecurityGroups:
+    - sg-0bxxxxxxxxxxxx
+nodes:
+  app:
+    minSize: 4
+    maxSize: 10
+    machineType: m5a.xlarge
+    mixedInstancesPolicy:
+      instances:
+        - m5a.xlarge
+        - m5d.xlarge
+        - m5.xlarge
+
+  ci:
+    minSize: 1
+    maxSize: 6
+    machineType: m5a.xlarge
+    mixedInstancesPolicy:
+      instances:
+        - m5a.xlarge
+        - m5d.xlarge
+        - m5.xlarge
+    enableTaints: true
+    taints:
+      - dedicated=ci-workload:NoSchedule

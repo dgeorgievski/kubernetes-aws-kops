@@ -1,0 +1,302 @@
+apiVersion: kops/v1alpha2
+kind: Cluster
+metadata:
+  creationTimestamp: null
+  name: {{.nameOfCluster}}-{{.awsRegion}}.{{.dnsZone}}
+spec:
+  additionalPolicies:
+    master: |
+      {{ include "masters.json" . | indent 6}}
+    node: |
+      {{ include "nodes.json" . | indent 6 }}
+  api:
+    loadBalancer:
+      type: Internal
+      crossZoneLoadBalancing: true
+  authentication:
+    aws: {}
+  authorization:
+    rbac: {}
+  channel: stable
+  cloudLabels:
+    {{ range $k,$v := .cloudLabels }}
+    {{- $k }}: {{ $v }}
+    {{ end }}
+  cloudProvider: aws
+  dnsZone: {{.dnsZone}}
+  etcdClusters:
+  - etcdMembers:
+    - instanceGroup: master-{{.awsRegion}}a
+      name: a-dev
+    - instanceGroup: master-{{.awsRegion}}b
+      name: b-dev
+    - instanceGroup: master-{{.awsRegion}}c
+      name: c-dev
+    cpuRequest: 200m
+    memoryRequest: 100Mi
+    enableEtcdTLS: true
+    name: main
+    version: {{.etcdVersion}}
+  - etcdMembers:
+    - instanceGroup: master-{{.awsRegion}}a
+      name: a-dev
+    - instanceGroup: master-{{.awsRegion}}b
+      name: b-dev
+    - instanceGroup: master-{{.awsRegion}}c
+      name: c-dev
+    enableEtcdTLS: true
+    cpuRequest: 100m
+    memoryRequest: 100Mi
+    name: events
+    version: {{.etcdVersion}}
+  iam:
+    allowContainerRegistry: true
+    legacy: false
+  kubeAPIServer:
+    maxRequestsInflight: 1000
+    maxMutatingRequestsInflight: 450
+    auditLogPath: /var/log/kube-apiserver-audit.log
+    auditLogMaxAge: 10
+    auditLogMaxBackups: 1
+    auditLogMaxSize: 100
+    auditPolicyFile: /srv/kubernetes/audit.yaml
+  kubeDNS:
+    provider: CoreDNS
+  kubelet:
+    anonymousAuth: false
+    # https://github.com/kubernetes-incubator/metrics-server/issues/144
+    # required for metrics-server deployment
+    authenticationTokenWebhook: true
+  #  --authentication-token-webhook \
+    authorizationMode: AlwaysAllow
+   #--authorization-mode=Webhook \
+  kubernetesApiAccess:
+    {{- range $element := .kubernetesApiAccess }}
+    - {{$element}}
+    {{- end }}
+  kubernetesVersion: {{.kubernetesVersion}}
+  fileAssets:
+  - name: bashrc
+    path: /root/.bashrc
+    roles: []
+    content: |
+      {{ include "bashrc" . | indent 6 }}
+  - name: audit
+    path: /srv/kubernetes/audit.yaml
+    roles: []
+    content: |
+      {{ include "audit.yaml" . | indent 6 }}
+  masterInternalName: api.internal.{{.nameOfCluster}}-{{.awsRegion}}.{{.dnsZone}}
+  masterPublicName: api.{{.nameOfCluster}}-{{.awsRegion}}.{{.dnsZone}}
+  networkCIDR: {{.network.cidr}}
+  networkID: {{.network.id}}
+  networking:
+    weave:
+      mtu: 8912
+  nonMasqueradeCIDR: 100.64.0.0/10
+  sshAccess:
+    {{- range $cidr := .sshAccess }}
+    - {{$cidr}}
+    {{- end }}
+  docker:
+    logOpt:
+      - "max-size=5m"
+      - "max-file=3"
+  subnets:
+  - id: {{.subnets.private.A.id}}
+    egress: {{.subnets.private.A.egress}}
+    name: {{.awsRegion}}a
+    type: Private
+    zone: {{.awsRegion}}a
+  - id: {{.subnets.private.B.id}}
+    egress: {{.subnets.private.A.egress}}
+    name: {{.awsRegion}}b
+    type: Private
+    zone: {{.awsRegion}}b
+  - id: {{.subnets.private.C.id}}
+    egress: {{.subnets.private.A.egress}}
+    name: {{.awsRegion}}c
+    type: Private
+    zone: {{.awsRegion}}c
+  - id: {{.subnets.public.A.id}}
+    name: utility-{{.awsRegion}}a
+    type: Utility
+    zone: {{.awsRegion}}a
+  - id: {{.subnets.public.B.id}}
+    name: utility-{{.awsRegion}}b
+    type: Utility
+    zone: {{.awsRegion}}b
+  - id: {{.subnets.public.C.id}}
+    name: utility-{{.awsRegion}}c
+    type: Utility
+    zone: {{.awsRegion}}c
+  topology:
+    dns:
+      type: Public
+    masters: private
+    nodes: private
+
+---
+
+apiVersion: kops/v1alpha2
+kind: InstanceGroup
+metadata:
+  creationTimestamp: null
+  labels:
+    kops.k8s.io/cluster: {{.nameOfCluster}}-{{.awsRegion}}.{{.dnsZone}}
+  name: master-{{.awsRegion}}a
+spec:
+  additionalUserData:
+  - name: local_repo.txt
+    type: text/cloud-config
+    content: |
+      {{ include "packages.yaml" . | indent 6 }}
+  associatePublicIp: false
+  image: {{.amiImage}}
+  machineType: {{.master.machineType}}
+  maxSize: 1
+  minSize: 1
+  nodeLabels:
+    kops.k8s.io/instancegroup: master-{{.awsRegion}}a
+  role: Master
+  rootVolumeSize: 150
+  subnets:
+    - {{.awsRegion}}a
+
+---
+
+apiVersion: kops/v1alpha2
+kind: InstanceGroup
+metadata:
+  creationTimestamp: null
+  labels:
+    kops.k8s.io/cluster: {{.nameOfCluster}}-{{.awsRegion}}.{{.dnsZone}}
+  name: master-{{.awsRegion}}b
+spec:
+  additionalUserData:
+  - name: local_repo.txt
+    type: text/cloud-config
+    content: |
+      {{ include "packages.yaml" . | indent 6 }}
+  associatePublicIp: false
+  image: {{.amiImage}}
+  machineType: {{.master.machineType}}
+  maxSize: 1
+  minSize: 1
+  nodeLabels:
+    kops.k8s.io/instancegroup: master-{{.awsRegion}}b
+  role: Master
+  rootVolumeSize: 150
+  subnets:
+    - {{.awsRegion}}b
+
+---
+
+apiVersion: kops/v1alpha2
+kind: InstanceGroup
+metadata:
+  creationTimestamp: null
+  labels:
+    kops.k8s.io/cluster: {{.nameOfCluster}}-{{.awsRegion}}.{{.dnsZone}}
+  name: master-{{.awsRegion}}c
+spec:
+  additionalUserData:
+  - name: local_repo.txt
+    type: text/cloud-config
+    content: |
+      {{ include "packages.yaml" . | indent 6 }}
+  associatePublicIp: false
+  image: {{.amiImage}}
+  machineType: {{.master.machineType}}
+  maxSize: 1
+  minSize: 1
+  nodeLabels:
+    kops.k8s.io/instancegroup: master-{{.awsRegion}}c
+  role: Master
+  rootVolumeSize: 150
+  subnets:
+    - {{.awsRegion}}c
+
+---
+
+apiVersion: kops/v1alpha2
+kind: InstanceGroup
+metadata:
+  creationTimestamp: null
+  labels:
+    kops.k8s.io/cluster: {{.nameOfCluster}}-{{.awsRegion}}.{{.dnsZone}}
+  name: nodes
+spec:
+  cloudLabels:
+    # used by cluster-autoscaler
+    k8s.io/cluster-autoscaler/enabled: "true"
+    kubernetes.io/cluster/{{.nameOfCluster}}-{{.awsRegion}}.{{.dnsZone}}: owned
+    dedicated: app-workload
+  additionalUserData:
+  - name: local_repo.txt
+    type: text/cloud-config
+    content: |
+      {{ include "packages.yaml" . | indent 6 }}
+  associatePublicIp: false
+  image: {{.amiImage}}
+  machineType: {{.nodes.app.machineType}}
+  maxSize: {{.nodes.app.maxSize}}
+  minSize: {{.nodes.app.minSize}}
+  nodeLabels:
+    kops.k8s.io/instancegroup: nodes
+  role: Node
+  rootVolumeSize: 200
+  subnets:
+    - {{.awsRegion}}a
+    - {{.awsRegion}}b
+    - {{.awsRegion}}c
+
+---
+
+apiVersion: kops/v1alpha2
+kind: InstanceGroup
+metadata:
+  creationTimestamp: null
+  labels:
+    kops.k8s.io/cluster: {{.nameOfCluster}}-{{.awsRegion}}.{{.dnsZone}}
+  name: ci-nodes
+spec:
+  cloudLabels:
+    # used by cluster-autoscaler
+    k8s.io/cluster-autoscaler/enabled: "true"
+    kubernetes.io/cluster/{{.nameOfCluster}}-{{.awsRegion}}.{{.dnsZone}}: owned
+    dedicated: ci-workload
+  additionalUserData:
+  - name: local_repo.txt
+    type: text/cloud-config
+    content: |
+      {{ include "ci-packages.yaml" . | indent 6 }}
+  associatePublicIp: false
+  image: {{.amiImage}}
+  machineType: {{.nodes.ci.machineType}}
+  maxSize: {{.nodes.ci.maxSize}}
+  minSize: {{.nodes.ci.minSize}}
+  nodeLabels:
+    kops.k8s.io/instancegroup: ci-nodes
+  role: Node
+  {{ if .nodes.ci.enableTaints }}
+  taints:
+  {{- range $taint := .nodes.ci.taints }}
+  - {{$taint}}
+  {{- end }}
+  {{ end }}
+  rootVolumeSize: 200
+  subnets:
+    - {{.awsRegion}}a
+    - {{.awsRegion}}b
+    - {{.awsRegion}}c
+
+---
+
+apiVersion: kops/v1alpha2
+kind: SSHCredential
+metadata:
+  labels:
+    kops.k8s.io/cluster: {{.nameOfCluster}}-{{.awsRegion}}.{{.dnsZone}}
+spec:
+  publicKey: "{{.sshCredential.publicKey}}"
