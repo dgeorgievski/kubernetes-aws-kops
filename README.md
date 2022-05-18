@@ -31,7 +31,7 @@ Make sure you enter the correct VPC and subnet IDs in the value file - [values_f
 It is recommended the KOPS_STATE_STORE path is unique per k8s cluster.
 ```
 export KOPS_STATE_STORE=s3://s3-state-bucket/kops
-export NAME=foo-us-east-1.dev.example.com
+export NAME=mars-us-east-1.dev.example.com
 ```
 
 ## aws-iam-authenticator
